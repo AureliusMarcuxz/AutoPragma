@@ -21,6 +21,8 @@ from swe2 import allocate_swad
 from swe2.report import write_outputs as swe2_write_outputs
 from swe3 import design_units
 from swe3.report import write_outputs as swe3_write_outputs
+from swe4 import verify_units
+from swe4.report import write_outputs as swe4_write_outputs
 from swe6 import generate_sqts
 from swe6.report import write_outputs as swe6_write_outputs
 
@@ -112,7 +114,7 @@ _DERIV_LABEL = {
 
 with st.sidebar:
     st.title("AutoPragma")
-    st.caption("ASPICE SWE.1 · SWE.2 · SWE.3 · SWE.6 Automation")
+    st.caption("ASPICE SWE.1 · SWE.2 · SWE.3 · SWE.4 · SWE.6 Automation")
     st.divider()
 
     st.subheader("Pipeline Input")
@@ -144,6 +146,11 @@ with st.sidebar:
     else:
         st.caption("SWE.3 — not yet run")
 
+    if st.session_state.get("swe4_done"):
+        st.success("SWE.4 complete")
+    else:
+        st.caption("SWE.4 — not yet run")
+
     if st.session_state.get("swe6_done"):
         st.success("SWE.6 complete")
     else:
@@ -154,7 +161,7 @@ with st.sidebar:
 
 # ── Session state init ────────────────────────────────────────────────────────
 
-for key in ("swe1_done", "swe2_done", "swe3_done", "swe6_done"):
+for key in ("swe1_done", "swe2_done", "swe3_done", "swe4_done", "swe6_done"):
     if key not in st.session_state:
         st.session_state[key] = False
 
@@ -163,26 +170,29 @@ if st.session_state.get("_last_input_mode") != input_mode:
     st.session_state.swe1_done = False
     st.session_state.swe2_done = False
     st.session_state.swe3_done = False
+    st.session_state.swe4_done = False
     st.session_state.swe6_done = False
     st.session_state["_last_input_mode"] = input_mode
 
 # ── Main header ───────────────────────────────────────────────────────────────
 
-st.markdown("## AutoPragma — ASPICE SWE.1 · SWE.2 · SWE.3 · SWE.6 Pipeline")
+st.markdown("## AutoPragma — ASPICE SWE.1 · SWE.2 · SWE.3 · SWE.4 · SWE.6 Pipeline")
 st.markdown(
     "Ingests a System Requirements Specification (SyRS), derives and validates a draft "
     "Software Requirements Specification (SWE.1), generates the Software Architectural "
     "Design as PlantUML component diagrams (SWE.2), decomposes components into SW units "
-    "with defined interfaces (SWE.3), and produces a SW Qualification Test Specification "
-    "with full SwRS traceability (SWE.6)."
+    "with defined interfaces (SWE.3), produces a SW Unit Verification Specification with "
+    "dynamic tests and static analysis items (SWE.4), and generates a SW Qualification "
+    "Test Specification with full SwRS traceability (SWE.6)."
 )
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "SWE.1 — Software Requirements",
     "SWE.2 — Architectural Design",
     "SWE.3 — Software Detailed Design",
+    "SWE.4 — Unit Verification",
     "SWE.6 — Qualification Test Specification",
 ])
 
@@ -391,7 +401,8 @@ with tab2:
         st.session_state.components = components
         st.session_state.comp_links = comp_links
         st.session_state.swe2_done  = True
-        st.session_state.swe3_done  = False  # invalidate SWE.3 when SWE.2 reruns
+        st.session_state.swe3_done  = False  # invalidate SWE.3/4 when SWE.2 reruns
+        st.session_state.swe4_done  = False
 
     if swe1_ready and not st.session_state.swe2_done:
         st.info("Click **Run SWE.2 Analysis** to generate the software architectural design.")
@@ -551,6 +562,7 @@ with tab3:
         st.session_state.sw_units   = sw_units
         st.session_state.unit_links = unit_links
         st.session_state.swe3_done  = True
+        st.session_state.swe4_done  = False  # invalidate SWE.4 when SWE.3 reruns
 
     if swe2_ready and not st.session_state.swe3_done:
         st.info("Click **Run SWE.3 Analysis** to decompose components into SW units.")
@@ -682,7 +694,219 @@ with tab3:
                            use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 4 — SWE.6
+# TAB 4 — SWE.4
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_SWE4_CAT_COLOR = {
+    "positive":   ("#1a5a1a", "#e0f5e0"),
+    "negative":   ("#7f2000", "#ffe0cc"),
+    "structural": ("#0a4a7a", "#e8f4fd"),
+}
+_SWE4_STATIC_COLOR = {
+    "MISRA_C":       ("#5a0a7a", "#f3e8fd"),
+    "complexity":    ("#7f5000", "#fff3cc"),
+    "documentation": ("#2a2a2a", "#f0f0f0"),
+}
+
+def unit_cat_badge(category: str) -> str:
+    fg, bg = _SWE4_CAT_COLOR.get(category, ("#333", "#eee"))
+    label = {"positive": "POSITIVE", "negative": "NEGATIVE",
+             "structural": "STRUCTURAL"}.get(category, category.upper())
+    return (
+        f'<span style="background:{bg};color:{fg};padding:2px 8px;'
+        f'border-radius:4px;font-weight:700;font-size:0.85em;">{label}</span>'
+    )
+
+def static_cat_badge(category: str) -> str:
+    fg, bg = _SWE4_STATIC_COLOR.get(category, ("#333", "#eee"))
+    label = {"MISRA_C": "MISRA C:2012", "complexity": "COMPLEXITY",
+             "documentation": "DOCUMENTATION"}.get(category, category)
+    return (
+        f'<span style="background:{bg};color:{fg};padding:2px 8px;'
+        f'border-radius:4px;font-weight:700;font-size:0.85em;">{label}</span>'
+    )
+
+_SWE4_CAT_CELL = {
+    "POSITIVE":   "background-color:#e0f5e0; color:#1a5a1a",
+    "NEGATIVE":   "background-color:#ffe0cc; color:#7f2000",
+    "STRUCTURAL": "background-color:#e8f4fd; color:#0a4a7a",
+}
+
+with tab4:
+
+    swe3_ready = st.session_state.swe3_done
+
+    run_swe4 = st.button(
+        "Run SWE.4 Analysis",
+        type="primary",
+        disabled=not swe3_ready,
+    )
+
+    if not swe3_ready:
+        st.warning("Run **SWE.3 Analysis** first — SWE.4 verifies the SW units defined in SWE.3.")
+    elif run_swe4:
+        with st.spinner("Running SWE.4 pipeline…"):
+            unit_tcs, static_chks, uv_links = verify_units(
+                st.session_state.sw_units,
+                st.session_state.metadata.get("project_key", "PROJ"),
+            )
+        st.session_state.unit_tcs    = unit_tcs
+        st.session_state.static_chks = static_chks
+        st.session_state.uv_links    = uv_links
+        st.session_state.swe4_done   = True
+
+    if swe3_ready and not st.session_state.swe4_done:
+        st.info("Click **Run SWE.4 Analysis** to generate the SW Unit Verification Specification.")
+        st.stop()
+
+    if not st.session_state.swe4_done:
+        st.stop()
+
+    # ── SWE.4 results ─────────────────────────────────────────────────────────
+
+    unit_tcs    = st.session_state.unit_tcs
+    static_chks = st.session_state.static_chks
+    uv_links    = st.session_state.uv_links
+    sw_units    = st.session_state.sw_units
+    metadata    = st.session_state.metadata
+    project_key = metadata.get("project_key", "PROJ")
+
+    n_pos    = sum(1 for tc in unit_tcs if tc.test_category == "positive")
+    n_neg    = sum(1 for tc in unit_tcs if tc.test_category == "negative")
+    n_struct = sum(1 for tc in unit_tcs if tc.test_category == "structural")
+
+    # Summary metrics
+    st.divider()
+    s1, s2, s3, s4, s5 = st.columns(5)
+    s1.metric("Dynamic Tests",  len(unit_tcs))
+    s2.metric("Positive",       n_pos)
+    s3.metric("Negative",       n_neg)
+    s4.metric("Structural",     n_struct)
+    s5.metric("Static Checks",  len(static_chks))
+
+    # Traceability matrix
+    st.divider()
+    st.subheader("Traceability Matrix — SW Unit → Verification Items")
+
+    tc_map_swe4  = {tc.id: tc for tc in unit_tcs}
+    sca_map_swe4 = {chk.id: chk for chk in static_chks}
+
+    trace_rows_swe4 = []
+    for lnk in uv_links:
+        if lnk.item_type == "dynamic_test":
+            tc = tc_map_swe4.get(lnk.item_id)
+            if tc:
+                trace_rows_swe4.append({
+                    "Unit":     tc.unit_name,
+                    "ASIL":     tc.asil.value,
+                    "Item ID":  lnk.item_id,
+                    "Category": {"positive": "POSITIVE", "negative": "NEGATIVE",
+                                 "structural": "STRUCTURAL"}.get(tc.test_category, tc.test_category.upper()),
+                    "Type":     "Dynamic Test",
+                    "Priority": tc.priority,
+                })
+        else:
+            chk = sca_map_swe4.get(lnk.item_id)
+            if chk:
+                trace_rows_swe4.append({
+                    "Unit":     chk.unit_name,
+                    "ASIL":     chk.asil.value,
+                    "Item ID":  lnk.item_id,
+                    "Category": {"MISRA_C": "MISRA C:2012", "complexity": "Complexity",
+                                 "documentation": "Documentation"}.get(chk.category, chk.category),
+                    "Type":     "Static Check",
+                    "Priority": "—",
+                })
+
+    df_swe4 = pd.DataFrame(trace_rows_swe4)
+    styled_swe4 = (
+        df_swe4.style
+        .applymap(lambda v: _ASIL_CELL.get(v, ""),     subset=["ASIL"])
+        .applymap(lambda v: _SWE4_CAT_CELL.get(v, ""), subset=["Category"])
+        .applymap(lambda v: _PRIORITY_CELL.get(v, ""), subset=["Priority"])
+    )
+    st.dataframe(styled_swe4, use_container_width=True, hide_index=True)
+
+    # Dynamic test case cards
+    st.divider()
+    st.subheader("Dynamic Unit Test Cases")
+    st.caption(
+        "AI-assisted draft — all test cases require human review and approval "
+        "before being treated as normative work products (AutoPragma FR-015 / FR-007)."
+    )
+
+    _SWE4_PRIO_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    for tc in sorted(unit_tcs, key=lambda t: _SWE4_PRIO_ORDER.get(t.priority, 9)):
+        badge_html = asil_badge(tc.asil)
+        if tc.cybersecurity_relevant:
+            badge_html += " " + cybersec_badge()
+        badge_html += " " + unit_cat_badge(tc.test_category)
+        badge_html += " " + priority_badge(tc.priority)
+
+        with st.expander(f"{tc.id} — {tc.title}", expanded=False):
+            st.markdown(f"**Classification:** {badge_html}", unsafe_allow_html=True)
+            col_l, col_r = st.columns(2)
+            col_l.markdown(f"**Unit:** `{tc.unit_name}` ({tc.component_name})")
+            col_r.markdown(f"**Environment:** `{tc.environment}`")
+            col_l.markdown(f"**Coverage target:** `{tc.coverage_target}`")
+            col_r.markdown(f"**Method:** `{tc.test_method}`")
+
+            st.markdown("**Objective:**")
+            st.info(tc.objective)
+
+            with st.expander("Preconditions", expanded=False):
+                for pre in tc.preconditions:
+                    st.markdown(f"- {pre}")
+
+            with st.expander("Inputs / Stimuli", expanded=True):
+                for inp in tc.inputs:
+                    st.markdown(f"- {inp}")
+
+            with st.expander("Expected Outputs", expanded=True):
+                for exp in tc.expected_outputs:
+                    st.markdown(f"- {exp}")
+
+            st.markdown("**Pass criteria:**")
+            st.success(tc.pass_criteria)
+            st.markdown("**Fail criteria:**")
+            st.error(tc.fail_criteria)
+
+    # Static analysis items
+    st.divider()
+    st.subheader("Static Analysis Items")
+
+    for chk in static_chks:
+        badge_html = asil_badge(chk.asil) + " " + static_cat_badge(chk.category)
+        label = {"MISRA_C": "MISRA C:2012", "complexity": "Complexity",
+                 "documentation": "Documentation"}.get(chk.category, chk.category)
+        with st.expander(f"{chk.id} — {chk.unit_name} — {label}", expanded=False):
+            st.markdown(f"**Classification:** {badge_html}", unsafe_allow_html=True)
+            col_l, col_r = st.columns(2)
+            col_l.markdown(f"**Unit:** `{chk.unit_name}`")
+            col_r.markdown(f"**Tool:** {chk.tool}")
+            st.markdown(f"**Description:** {chk.description}")
+            st.markdown(f"**Acceptance criteria:** {chk.acceptance_criteria}")
+            st.markdown(f"**Status:** `{chk.status}`")
+
+    # Export SWE.4
+    st.divider()
+    st.subheader("Export — SWE.4")
+    json4, md4 = swe4_write_outputs(
+        metadata=metadata, units=sw_units, test_cases=unit_tcs,
+        static_checks=static_chks, links=uv_links, output_dir="output/swe4",
+    )
+    g1, g2 = st.columns(2)
+    with g1:
+        st.download_button("Download SUVS JSON", data=json4.read_bytes(),
+                           file_name="suvs_output.json", mime="application/json",
+                           use_container_width=True)
+    with g2:
+        st.download_button("Download SWE.4 Report (MD)", data=md4.read_bytes(),
+                           file_name="swe4_report.md", mime="text/markdown",
+                           use_container_width=True)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 5 — SWE.6
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _PRIORITY_COLOR = {
@@ -738,7 +962,7 @@ _TYPE_LABEL_MAP = {
     "demonstration":   "DEMONSTRATION",
 }
 
-with tab4:
+with tab5:
 
     swe1_ready = st.session_state.swe1_done
 
