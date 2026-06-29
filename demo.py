@@ -110,7 +110,7 @@ _DERIV_LABEL = {
 
 with st.sidebar:
     st.title("AutoPragma")
-    st.caption("ASPICE Process Automation Platform")
+    st.caption("ASPICE SWE.1 · SWE.2 · SWE.6 Automation")
     st.divider()
 
     st.subheader("Pipeline Input")
@@ -160,11 +160,12 @@ if st.session_state.get("_last_input_mode") != input_mode:
 
 # ── Main header ───────────────────────────────────────────────────────────────
 
-st.markdown("## AutoPragma — ASPICE SWE.1 + SWE.2 Pipeline")
+st.markdown("## AutoPragma — ASPICE SWE.1 · SWE.2 · SWE.6 Pipeline")
 st.markdown(
-    "Ingests a system-level requirements specification (SyRS), derives and validates "
-    "a draft software requirements specification (SWE.1), then generates the software "
-    "architectural design expressed as PlantUML component diagrams (SWE.2)."
+    "Ingests a System Requirements Specification (SyRS), derives and validates a draft "
+    "Software Requirements Specification (SWE.1), generates the Software Architectural "
+    "Design as PlantUML component diagrams (SWE.2), and produces a SW Qualification "
+    "Test Specification with full SwRS traceability (SWE.6)."
 )
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
