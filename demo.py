@@ -111,7 +111,7 @@ with st.sidebar:
     st.caption("ASPICE Process Automation Platform")
     st.divider()
 
-    st.subheader("SWE.1 + SWE.2 Pipeline")
+    st.subheader("Pipeline Input")
     st.markdown(
         "Upload a System Requirements Specification (SyRS) JSON file "
         "exported from your ALM tool, or use the built-in sample."
@@ -124,10 +124,31 @@ with st.sidebar:
         uploaded = st.file_uploader("SyRS JSON file", type=["json"])
 
     st.divider()
-    run = st.button("Run SWE.1 + SWE.2 Analysis", type="primary", use_container_width=True)
+
+    if st.session_state.get("swe1_done"):
+        st.success("SWE.1 complete")
+    else:
+        st.caption("SWE.1 — not yet run")
+
+    if st.session_state.get("swe2_done"):
+        st.success("SWE.2 complete")
+    else:
+        st.caption("SWE.2 — not yet run")
 
     st.divider()
     st.caption("ASPICE CL3 | ISO 26262 | ISO/SAE 21434 | MISRA")
+
+# ── Session state init ────────────────────────────────────────────────────────
+
+for key in ("swe1_done", "swe2_done"):
+    if key not in st.session_state:
+        st.session_state[key] = False
+
+# Invalidate cached results when input source changes
+if st.session_state.get("_last_input_mode") != input_mode:
+    st.session_state.swe1_done = False
+    st.session_state.swe2_done = False
+    st.session_state["_last_input_mode"] = input_mode
 
 # ── Main header ───────────────────────────────────────────────────────────────
 
@@ -137,60 +158,6 @@ st.markdown(
     "a draft software requirements specification (SWE.1), then generates the software "
     "architectural design expressed as PlantUML component diagrams (SWE.2)."
 )
-
-if not run:
-    st.info("Configure your input in the sidebar and click **Run SWE.1 + SWE.2 Analysis**.")
-    st.stop()
-
-# ── Load SyRS ─────────────────────────────────────────────────────────────────
-
-try:
-    if input_mode == "Sample SyRS (VSC)":
-        metadata, syrs_items = load_syrs(str(SAMPLE_PATH))
-    else:
-        if uploaded is None:
-            st.error("Please upload a SyRS JSON file before running.")
-            st.stop()
-        raw = json.loads(uploaded.read().decode("utf-8"))
-        tmp = Path("output/_upload_tmp.json")
-        tmp.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(json.dumps(raw), encoding="utf-8")
-        metadata, syrs_items = load_syrs(str(tmp))
-except Exception as exc:
-    st.error(f"Failed to load SyRS: {exc}")
-    st.stop()
-
-project_key = metadata.get("project_key", "PROJ")
-
-# ── SWE.1 processing ──────────────────────────────────────────────────────────
-
-findings          = validate(syrs_items)
-swrs_items, links = derive_swrs(syrs_items, project_key)
-counts            = finding_counts(findings)
-gate_pass         = counts["ERROR"] == 0
-
-n_functional  = sum(1 for sw in swrs_items if sw.derivation_type == DERIV_FUNCTIONAL)
-n_safety_mech = sum(1 for sw in swrs_items if sw.derivation_type == DERIV_SAFETY_MECH)
-n_cybersec    = sum(1 for sw in swrs_items if sw.derivation_type == DERIV_CYBERSEC)
-
-# ── SWE.2 processing ──────────────────────────────────────────────────────────
-
-components, comp_links = allocate_swad(swrs_items, project_key)
-
-n_app_comp = sum(1 for c in components if c.layer == "application")
-n_saf_comp = sum(1 for c in components if c.layer == "safety")
-n_sec_comp = sum(1 for c in components if c.layer == "security")
-
-# ── Metadata banner (shared) ──────────────────────────────────────────────────
-
-st.divider()
-b1, b2, b3, b4, b5, b6 = st.columns(6)
-b1.metric("Document",       metadata.get("document_id", "—"))
-b2.metric("Version",        metadata.get("version", "—"))
-b3.metric("Status",         metadata.get("status", "—").upper())
-b4.metric("SyRS Items",     len(syrs_items))
-b5.metric("SwRS Generated", len(swrs_items))
-b6.metric("SW Components",  len(components))
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
@@ -202,7 +169,67 @@ tab1, tab2 = st.tabs(["SWE.1 — Software Requirements", "SWE.2 — Architectura
 
 with tab1:
 
+    run_swe1 = st.button("Run SWE.1 Analysis", type="primary")
+
+    if run_swe1:
+        try:
+            if input_mode == "Sample SyRS (VSC)":
+                metadata, syrs_items = load_syrs(str(SAMPLE_PATH))
+            else:
+                if uploaded is None:
+                    st.error("Please upload a SyRS JSON file before running.")
+                    st.stop()
+                raw = json.loads(uploaded.read().decode("utf-8"))
+                tmp = Path("output/_upload_tmp.json")
+                tmp.parent.mkdir(parents=True, exist_ok=True)
+                tmp.write_text(json.dumps(raw), encoding="utf-8")
+                metadata, syrs_items = load_syrs(str(tmp))
+        except Exception as exc:
+            st.error(f"Failed to load SyRS: {exc}")
+            st.stop()
+
+        with st.spinner("Running SWE.1 pipeline…"):
+            findings          = validate(syrs_items)
+            swrs_items, links = derive_swrs(syrs_items, metadata.get("project_key", "PROJ"))
+
+        st.session_state.metadata   = metadata
+        st.session_state.syrs_items = syrs_items
+        st.session_state.findings   = findings
+        st.session_state.swrs_items = swrs_items
+        st.session_state.links      = links
+        st.session_state.swe1_done  = True
+        st.session_state.swe2_done  = False  # invalidate SWE.2 when SWE.1 reruns
+
+    if not st.session_state.swe1_done:
+        st.info("Click **Run SWE.1 Analysis** to derive software requirements from the SyRS.")
+        st.stop()
+
+    # ── SWE.1 results ─────────────────────────────────────────────────────────
+
+    metadata   = st.session_state.metadata
+    syrs_items = st.session_state.syrs_items
+    findings   = st.session_state.findings
+    swrs_items = st.session_state.swrs_items
+    links      = st.session_state.links
+
+    counts    = finding_counts(findings)
+    gate_pass = counts["ERROR"] == 0
+
+    n_functional  = sum(1 for sw in swrs_items if sw.derivation_type == DERIV_FUNCTIONAL)
+    n_safety_mech = sum(1 for sw in swrs_items if sw.derivation_type == DERIV_SAFETY_MECH)
+    n_cybersec    = sum(1 for sw in swrs_items if sw.derivation_type == DERIV_CYBERSEC)
+
+    # Metadata banner
+    st.divider()
+    b1, b2, b3, b4, b5 = st.columns(5)
+    b1.metric("Document",       metadata.get("document_id", "—"))
+    b2.metric("Version",        metadata.get("version", "—"))
+    b3.metric("Status",         metadata.get("status", "—").upper())
+    b4.metric("SyRS Items",     len(syrs_items))
+    b5.metric("SwRS Generated", len(swrs_items))
+
     # Derivation breakdown
+    st.divider()
     d1, d2, d3 = st.columns(3)
     d1.metric("Functional",       n_functional)
     d2.metric("Safety Mechanism", n_safety_mech)
@@ -320,7 +347,47 @@ with tab1:
 
 with tab2:
 
+    swe1_ready = st.session_state.swe1_done
+
+    run_swe2 = st.button(
+        "Run SWE.2 Analysis",
+        type="primary",
+        disabled=not swe1_ready,
+    )
+
+    if not swe1_ready:
+        st.warning("Run **SWE.1 Analysis** first — SWE.2 requires the derived SwRS as input.")
+    elif run_swe2:
+        with st.spinner("Running SWE.2 pipeline…"):
+            components, comp_links = allocate_swad(
+                st.session_state.swrs_items,
+                st.session_state.metadata.get("project_key", "PROJ"),
+            )
+        st.session_state.components = components
+        st.session_state.comp_links = comp_links
+        st.session_state.swe2_done  = True
+
+    if swe1_ready and not st.session_state.swe2_done:
+        st.info("Click **Run SWE.2 Analysis** to generate the software architectural design.")
+        st.stop()
+
+    if not st.session_state.swe2_done:
+        st.stop()
+
+    # ── SWE.2 results ─────────────────────────────────────────────────────────
+
+    components  = st.session_state.components
+    comp_links  = st.session_state.comp_links
+    metadata    = st.session_state.metadata
+    swrs_items  = st.session_state.swrs_items
+    project_key = metadata.get("project_key", "PROJ")
+
+    n_app_comp = sum(1 for c in components if c.layer == "application")
+    n_saf_comp = sum(1 for c in components if c.layer == "safety")
+    n_sec_comp = sum(1 for c in components if c.layer == "security")
+
     # Component layer breakdown
+    st.divider()
     e1, e2, e3 = st.columns(3)
     e1.metric("Application components", n_app_comp)
     e2.metric("Safety components",      n_saf_comp)
@@ -336,8 +403,10 @@ with tab2:
             badge_html += " " + cybersec_badge()
         badge_html += " " + layer_badge(comp.layer)
 
-        with st.expander(f"{comp.id} — {comp.name}  ({comp.asil.value} | {comp.layer.upper()})",
-                         expanded=True):
+        with st.expander(
+            f"{comp.id} — {comp.name}  ({comp.asil.value} | {comp.layer.upper()})",
+            expanded=True,
+        ):
             st.markdown(f"**Classification:** {badge_html}", unsafe_allow_html=True)
             st.markdown(f"**Allocated SwRS items:** `{len(comp.allocated_swrs)}`")
             st.markdown(f"**Description:** {comp.description}")
