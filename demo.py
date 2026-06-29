@@ -747,6 +747,59 @@ _SWE4_CAT_CELL = {
     "STRUCTURAL": "background-color:#e8f4fd; color:#0a4a7a",
 }
 
+_PRIORITY_COLOR = {
+    "critical": ("#7f0000", "#ffcccc"),
+    "high":     ("#7f2000", "#ffe0cc"),
+    "medium":   ("#4a5a00", "#f0f5cc"),
+    "low":      ("#1a5a1a", "#e0f5e0"),
+}
+_TYPE_COLOR = {
+    "behavioral":      ("#0a4a7a", "#e8f4fd"),
+    "fault_injection": ("#7f5000", "#fff3cc"),
+    "security":        ("#5a0a7a", "#f3e8fd"),
+    "inspection":      ("#2a2a2a", "#f0f0f0"),
+    "static_analysis": ("#2a2a2a", "#f0f0f0"),
+    "demonstration":   ("#005a3a", "#e0f5ee"),
+}
+
+def priority_badge(priority: str) -> str:
+    fg, bg = _PRIORITY_COLOR.get(priority, ("#333", "#eee"))
+    return (
+        f'<span style="background:{bg};color:{fg};padding:2px 8px;'
+        f'border-radius:4px;font-weight:700;font-size:0.85em;">{priority.upper()}</span>'
+    )
+
+def test_type_badge(test_type: str) -> str:
+    fg, bg = _TYPE_COLOR.get(test_type, ("#333", "#eee"))
+    label = test_type.replace("_", " ").upper()
+    return (
+        f'<span style="background:{bg};color:{fg};padding:2px 8px;'
+        f'border-radius:4px;font-weight:700;font-size:0.85em;">{label}</span>'
+    )
+
+_PRIORITY_CELL = {
+    "critical": "background-color:#ffcccc; color:#7f0000",
+    "high":     "background-color:#ffe0cc; color:#7f2000",
+    "medium":   "background-color:#f0f5cc; color:#4a5a00",
+    "low":      "background-color:#e0f5e0; color:#1a5a1a",
+}
+_TYPE_CELL = {
+    "BEHAVIORAL":      "background-color:#e8f4fd; color:#0a4a7a",
+    "FAULT INJECTION": "background-color:#fff3cc; color:#7f5000",
+    "SECURITY":        "background-color:#f3e8fd; color:#5a0a7a",
+    "INSPECTION":      "background-color:#f0f0f0; color:#2a2a2a",
+    "STATIC ANALYSIS": "background-color:#f0f0f0; color:#2a2a2a",
+    "DEMONSTRATION":   "background-color:#e0f5ee; color:#005a3a",
+}
+_TYPE_LABEL_MAP = {
+    "behavioral":      "BEHAVIORAL",
+    "fault_injection": "FAULT INJECTION",
+    "security":        "SECURITY",
+    "inspection":      "INSPECTION",
+    "static_analysis": "STATIC ANALYSIS",
+    "demonstration":   "DEMONSTRATION",
+}
+
 with tab4:
 
     swe3_ready = st.session_state.swe3_done
@@ -1205,59 +1258,6 @@ with tab5:
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 6 — SWE.6
 # ═══════════════════════════════════════════════════════════════════════════════
-
-_PRIORITY_COLOR = {
-    "critical": ("#7f0000", "#ffcccc"),
-    "high":     ("#7f2000", "#ffe0cc"),
-    "medium":   ("#4a5a00", "#f0f5cc"),
-    "low":      ("#1a5a1a", "#e0f5e0"),
-}
-_TYPE_COLOR = {
-    "behavioral":      ("#0a4a7a", "#e8f4fd"),
-    "fault_injection": ("#7f5000", "#fff3cc"),
-    "security":        ("#5a0a7a", "#f3e8fd"),
-    "inspection":      ("#2a2a2a", "#f0f0f0"),
-    "static_analysis": ("#2a2a2a", "#f0f0f0"),
-    "demonstration":   ("#005a3a", "#e0f5ee"),
-}
-
-def priority_badge(priority: str) -> str:
-    fg, bg = _PRIORITY_COLOR.get(priority, ("#333", "#eee"))
-    return (
-        f'<span style="background:{bg};color:{fg};padding:2px 8px;'
-        f'border-radius:4px;font-weight:700;font-size:0.85em;">{priority.upper()}</span>'
-    )
-
-def test_type_badge(test_type: str) -> str:
-    fg, bg = _TYPE_COLOR.get(test_type, ("#333", "#eee"))
-    label = test_type.replace("_", " ").upper()
-    return (
-        f'<span style="background:{bg};color:{fg};padding:2px 8px;'
-        f'border-radius:4px;font-weight:700;font-size:0.85em;">{label}</span>'
-    )
-
-_PRIORITY_CELL = {
-    "critical": "background-color:#ffcccc; color:#7f0000",
-    "high":     "background-color:#ffe0cc; color:#7f2000",
-    "medium":   "background-color:#f0f5cc; color:#4a5a00",
-    "low":      "background-color:#e0f5e0; color:#1a5a1a",
-}
-_TYPE_CELL = {
-    "BEHAVIORAL":      "background-color:#e8f4fd; color:#0a4a7a",
-    "FAULT INJECTION": "background-color:#fff3cc; color:#7f5000",
-    "SECURITY":        "background-color:#f3e8fd; color:#5a0a7a",
-    "INSPECTION":      "background-color:#f0f0f0; color:#2a2a2a",
-    "STATIC ANALYSIS": "background-color:#f0f0f0; color:#2a2a2a",
-    "DEMONSTRATION":   "background-color:#e0f5ee; color:#005a3a",
-}
-_TYPE_LABEL_MAP = {
-    "behavioral":      "BEHAVIORAL",
-    "fault_injection": "FAULT INJECTION",
-    "security":        "SECURITY",
-    "inspection":      "INSPECTION",
-    "static_analysis": "STATIC ANALYSIS",
-    "demonstration":   "DEMONSTRATION",
-}
 
 with tab6:
 
