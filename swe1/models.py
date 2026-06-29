@@ -52,6 +52,7 @@ class SwRSItem:
     rationale: str = ""
     status: str = "draft"
     tags: list[str] = field(default_factory=list)
+    derivation_type: str = "derives_functional"  # derives_functional | derives_safety_mechanism | derives_cybersec_impl
 
 
 @dataclass

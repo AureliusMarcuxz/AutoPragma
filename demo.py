@@ -13,6 +13,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).parent))
 
 from swe1 import derive_swrs, load_syrs, validate
+from swe1.derive import DERIV_FUNCTIONAL, DERIV_SAFETY_MECH, DERIV_CYBERSEC
 from swe1.models import ASIL
 from swe1.validate import finding_counts
 
@@ -48,6 +49,21 @@ def cybersec_badge() -> str:
     return (
         '<span style="background:#dde8ff;color:#003080;padding:2px 8px;'
         'border-radius:4px;font-weight:700;font-size:0.85em;">CYBERSEC</span>'
+    )
+
+_DERIV_BADGE_STYLE = {
+    DERIV_FUNCTIONAL:  ("FUNCTIONAL",   "#e8f4fd", "#0a4a7a"),
+    DERIV_SAFETY_MECH: ("SAFETY MECH",  "#fff3cc", "#7f5000"),
+    DERIV_CYBERSEC:    ("CYBERSEC IMPL","#f3e8fd", "#5a0a7a"),
+}
+
+def derivation_badge(deriv_type: str) -> str:
+    label, bg, fg = _DERIV_BADGE_STYLE.get(
+        deriv_type, (deriv_type, "#eee", "#333")
+    )
+    return (
+        f'<span style="background:{bg};color:{fg};padding:2px 8px;'
+        f'border-radius:4px;font-weight:700;font-size:0.85em;">{label}</span>'
     )
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -115,6 +131,10 @@ gate_pass  = counts["ERROR"] == 0
 
 # ── 1. Metadata banner ────────────────────────────────────────────────────────
 
+n_functional  = sum(1 for sw in swrs_items if sw.derivation_type == DERIV_FUNCTIONAL)
+n_safety_mech = sum(1 for sw in swrs_items if sw.derivation_type == DERIV_SAFETY_MECH)
+n_cybersec    = sum(1 for sw in swrs_items if sw.derivation_type == DERIV_CYBERSEC)
+
 st.divider()
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Document",       metadata.get("document_id", "—"))
@@ -122,6 +142,11 @@ c2.metric("Version",        metadata.get("version", "—"))
 c3.metric("Status",         metadata.get("status", "—").upper())
 c4.metric("SyRS Items",     len(syrs_items))
 c5.metric("SwRS Generated", len(swrs_items))
+
+d1, d2, d3 = st.columns(3)
+d1.metric("Functional",       n_functional)
+d2.metric("Safety Mechanism", n_safety_mech)
+d3.metric("Cybersec Impl",    n_cybersec)
 
 # ── 2. Gate result ────────────────────────────────────────────────────────────
 
@@ -168,6 +193,14 @@ st.divider()
 st.subheader("Traceability Matrix — SyRS to SwRS")
 
 # Build a combined table
+import pandas as pd
+
+_DERIV_LABEL = {
+    DERIV_FUNCTIONAL:  "FUNCTIONAL",
+    DERIV_SAFETY_MECH: "SAFETY MECH",
+    DERIV_CYBERSEC:    "CYBERSEC IMPL",
+}
+
 syrs_by_id = {item.id: item for item in syrs_items}
 rows = []
 for link in links:
@@ -175,27 +208,40 @@ for link in links:
     sw_item  = next((s for s in swrs_items if s.id == link.target_id), None)
     if sys_item and sw_item:
         rows.append({
-            "SyRS ID":   link.source_id,
+            "SyRS ID":    link.source_id,
             "SyRS Title": sys_item.title,
             "ASIL":       sys_item.asil.value,
             "CyberSec":   "Yes" if sys_item.cybersecurity_relevant else "",
-            "Link":       link.link_type,
+            "Derivation": _DERIV_LABEL.get(link.link_type, link.link_type),
             "SwRS ID":    link.target_id,
         })
 
-import pandas as pd
 df = pd.DataFrame(rows)
 
-def highlight_asil(val):
-    colors = {
-        "ASIL-C": "background-color:#ffe0cc",
-        "ASIL-B": "background-color:#fff3cc",
-        "ASIL-A": "background-color:#f0f5cc",
-        "QM":     "background-color:#e0f5e0",
-    }
-    return colors.get(val, "")
+_ASIL_BG = {
+    "ASIL-D": "background-color:#ffcccc",
+    "ASIL-C": "background-color:#ffe0cc",
+    "ASIL-B": "background-color:#fff3cc",
+    "ASIL-A": "background-color:#f0f5cc",
+    "QM":     "background-color:#e0f5e0",
+}
+_DERIV_BG = {
+    "FUNCTIONAL":    "background-color:#e8f4fd",
+    "SAFETY MECH":   "background-color:#fff3cc",
+    "CYBERSEC IMPL": "background-color:#f3e8fd",
+}
 
-styled = df.style.applymap(highlight_asil, subset=["ASIL"])
+def highlight_asil(val):
+    return _ASIL_BG.get(val, "")
+
+def highlight_deriv(val):
+    return _DERIV_BG.get(val, "")
+
+styled = (
+    df.style
+    .applymap(highlight_asil,  subset=["ASIL"])
+    .applymap(highlight_deriv, subset=["Derivation"])
+)
 st.dataframe(styled, use_container_width=True, hide_index=True)
 
 # ── 5. Draft SwRS items ───────────────────────────────────────────────────────
@@ -211,6 +257,7 @@ for item in swrs_items:
     badge_html = asil_badge(item.asil)
     if item.cybersecurity_relevant:
         badge_html += " " + cybersec_badge()
+    badge_html += " " + derivation_badge(item.derivation_type)
 
     header = f"{item.id} — {item.title}"
     with st.expander(header, expanded=False):
