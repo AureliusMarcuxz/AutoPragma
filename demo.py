@@ -19,6 +19,8 @@ from swe1.report import write_outputs as swe1_write_outputs
 from swe1.validate import finding_counts
 from swe2 import allocate_swad
 from swe2.report import write_outputs as swe2_write_outputs
+from swe6 import generate_sqts
+from swe6.report import write_outputs as swe6_write_outputs
 
 # ── Page config ───────────────────────────────────────────────────────────────
 
@@ -135,12 +137,17 @@ with st.sidebar:
     else:
         st.caption("SWE.2 — not yet run")
 
+    if st.session_state.get("swe6_done"):
+        st.success("SWE.6 complete")
+    else:
+        st.caption("SWE.6 — not yet run")
+
     st.divider()
     st.caption("ASPICE CL3 | ISO 26262 | ISO/SAE 21434 | MISRA")
 
 # ── Session state init ────────────────────────────────────────────────────────
 
-for key in ("swe1_done", "swe2_done"):
+for key in ("swe1_done", "swe2_done", "swe6_done"):
     if key not in st.session_state:
         st.session_state[key] = False
 
@@ -148,6 +155,7 @@ for key in ("swe1_done", "swe2_done"):
 if st.session_state.get("_last_input_mode") != input_mode:
     st.session_state.swe1_done = False
     st.session_state.swe2_done = False
+    st.session_state.swe6_done = False
     st.session_state["_last_input_mode"] = input_mode
 
 # ── Main header ───────────────────────────────────────────────────────────────
@@ -161,7 +169,11 @@ st.markdown(
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab1, tab2 = st.tabs(["SWE.1 — Software Requirements", "SWE.2 — Architectural Design"])
+tab1, tab2, tab3 = st.tabs([
+    "SWE.1 — Software Requirements",
+    "SWE.2 — Architectural Design",
+    "SWE.6 — Qualification Test Specification",
+])
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — SWE.1
@@ -198,7 +210,8 @@ with tab1:
         st.session_state.swrs_items = swrs_items
         st.session_state.links      = links
         st.session_state.swe1_done  = True
-        st.session_state.swe2_done  = False  # invalidate SWE.2 when SWE.1 reruns
+        st.session_state.swe2_done  = False  # invalidate downstream when SWE.1 reruns
+        st.session_state.swe6_done  = False
 
     if not st.session_state.swe1_done:
         st.info("Click **Run SWE.1 Analysis** to derive software requirements from the SyRS.")
@@ -498,4 +511,209 @@ with tab2:
         st.download_button("Download safety_diagram.puml",
                            data=puml_safety.read_bytes(),
                            file_name="safety_diagram.puml", mime="text/plain",
+                           use_container_width=True)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 3 — SWE.6
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_PRIORITY_COLOR = {
+    "critical": ("#7f0000", "#ffcccc"),
+    "high":     ("#7f2000", "#ffe0cc"),
+    "medium":   ("#4a5a00", "#f0f5cc"),
+    "low":      ("#1a5a1a", "#e0f5e0"),
+}
+_TYPE_COLOR = {
+    "behavioral":      ("#0a4a7a", "#e8f4fd"),
+    "fault_injection": ("#7f5000", "#fff3cc"),
+    "security":        ("#5a0a7a", "#f3e8fd"),
+    "inspection":      ("#2a2a2a", "#f0f0f0"),
+    "static_analysis": ("#2a2a2a", "#f0f0f0"),
+    "demonstration":   ("#005a3a", "#e0f5ee"),
+}
+
+def priority_badge(priority: str) -> str:
+    fg, bg = _PRIORITY_COLOR.get(priority, ("#333", "#eee"))
+    return (
+        f'<span style="background:{bg};color:{fg};padding:2px 8px;'
+        f'border-radius:4px;font-weight:700;font-size:0.85em;">{priority.upper()}</span>'
+    )
+
+def test_type_badge(test_type: str) -> str:
+    fg, bg = _TYPE_COLOR.get(test_type, ("#333", "#eee"))
+    label = test_type.replace("_", " ").upper()
+    return (
+        f'<span style="background:{bg};color:{fg};padding:2px 8px;'
+        f'border-radius:4px;font-weight:700;font-size:0.85em;">{label}</span>'
+    )
+
+_PRIORITY_CELL = {
+    "critical": "background-color:#ffcccc; color:#7f0000",
+    "high":     "background-color:#ffe0cc; color:#7f2000",
+    "medium":   "background-color:#f0f5cc; color:#4a5a00",
+    "low":      "background-color:#e0f5e0; color:#1a5a1a",
+}
+_TYPE_CELL = {
+    "BEHAVIORAL":      "background-color:#e8f4fd; color:#0a4a7a",
+    "FAULT INJECTION": "background-color:#fff3cc; color:#7f5000",
+    "SECURITY":        "background-color:#f3e8fd; color:#5a0a7a",
+    "INSPECTION":      "background-color:#f0f0f0; color:#2a2a2a",
+    "STATIC ANALYSIS": "background-color:#f0f0f0; color:#2a2a2a",
+    "DEMONSTRATION":   "background-color:#e0f5ee; color:#005a3a",
+}
+_TYPE_LABEL_MAP = {
+    "behavioral":      "BEHAVIORAL",
+    "fault_injection": "FAULT INJECTION",
+    "security":        "SECURITY",
+    "inspection":      "INSPECTION",
+    "static_analysis": "STATIC ANALYSIS",
+    "demonstration":   "DEMONSTRATION",
+}
+
+with tab3:
+
+    swe1_ready = st.session_state.swe1_done
+
+    run_swe6 = st.button(
+        "Run SWE.6 Analysis",
+        type="primary",
+        disabled=not swe1_ready,
+    )
+
+    if not swe1_ready:
+        st.warning("Run **SWE.1 Analysis** first — SWE.6 derives test cases from the SwRS.")
+    elif run_swe6:
+        with st.spinner("Running SWE.6 pipeline…"):
+            test_cases, tc_links = generate_sqts(
+                st.session_state.swrs_items,
+                st.session_state.metadata.get("project_key", "PROJ"),
+            )
+        st.session_state.test_cases = test_cases
+        st.session_state.tc_links   = tc_links
+        st.session_state.swe6_done  = True
+
+    if swe1_ready and not st.session_state.swe6_done:
+        st.info("Click **Run SWE.6 Analysis** to generate the SW Qualification Test Specification.")
+        st.stop()
+
+    if not st.session_state.swe6_done:
+        st.stop()
+
+    # ── SWE.6 results ─────────────────────────────────────────────────────────
+
+    test_cases  = st.session_state.test_cases
+    tc_links    = st.session_state.tc_links
+    swrs_items  = st.session_state.swrs_items
+    metadata    = st.session_state.metadata
+    project_key = metadata.get("project_key", "PROJ")
+
+    n_critical = sum(1 for tc in test_cases if tc.priority == "critical")
+    n_high     = sum(1 for tc in test_cases if tc.priority == "high")
+    n_medium   = sum(1 for tc in test_cases if tc.priority == "medium")
+    n_hil      = sum(1 for tc in test_cases if tc.environment == "HIL")
+    n_sil      = sum(1 for tc in test_cases if tc.environment == "SIL")
+
+    # Summary metrics
+    st.divider()
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Total Test Cases", len(test_cases))
+    m2.metric("Critical",         n_critical)
+    m3.metric("High",             n_high)
+    m4.metric("HIL",              n_hil)
+    m5.metric("SIL",              n_sil)
+
+    # Traceability matrix SwRS → Test Cases
+    st.divider()
+    st.subheader("Traceability Matrix — SwRS → Test Cases")
+
+    swrs_by_id = {sw.id: sw for sw in swrs_items}
+    tc_map     = {tc.id: tc for tc in test_cases}
+
+    trace_rows = []
+    for lnk in tc_links:
+        sw = swrs_by_id.get(lnk.swrs_id)
+        tc = tc_map.get(lnk.test_case_id)
+        if sw and tc:
+            trace_rows.append({
+                "SwRS ID":   lnk.swrs_id,
+                "ASIL":      tc.asil.value,
+                "Test Case": lnk.test_case_id,
+                "Type":      _TYPE_LABEL_MAP.get(tc.test_type, tc.test_type.upper()),
+                "Priority":  tc.priority,
+                "Env":       tc.environment,
+                "Coverage":  tc.coverage_requirement,
+            })
+
+    df3 = pd.DataFrame(trace_rows)
+    styled3 = (
+        df3.style
+        .applymap(lambda v: _ASIL_CELL.get(v, ""),     subset=["ASIL"])
+        .applymap(lambda v: _TYPE_CELL.get(v, ""),     subset=["Type"])
+        .applymap(lambda v: _PRIORITY_CELL.get(v, ""), subset=["Priority"])
+    )
+    st.dataframe(styled3, use_container_width=True, hide_index=True)
+
+    # Test case cards
+    st.divider()
+    st.subheader("Test Cases")
+    st.caption(
+        "AI-assisted draft — all test cases require human review and approval "
+        "before being treated as normative work products (AutoPragma FR-015 / FR-007)."
+    )
+
+    _PRIORITY_ORDER_DEMO = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    for tc in sorted(test_cases, key=lambda t: _PRIORITY_ORDER_DEMO.get(t.priority, 9)):
+        badge_html = asil_badge(tc.asil)
+        if tc.cybersecurity_relevant:
+            badge_html += " " + cybersec_badge()
+        badge_html += " " + priority_badge(tc.priority)
+        badge_html += " " + test_type_badge(tc.test_type)
+
+        with st.expander(
+            f"{tc.id} — {tc.title}  [{tc.priority.upper()} | {tc.environment}]",
+            expanded=False,
+        ):
+            st.markdown(f"**Classification:** {badge_html}", unsafe_allow_html=True)
+            col_l, col_r = st.columns(2)
+            col_l.markdown(f"**Derived from SwRS:** `{tc.derived_from}`")
+            col_r.markdown(f"**Environment:** `{tc.environment}`")
+            col_l.markdown(f"**Test method:** `{tc.test_method}`")
+            col_r.markdown(f"**Coverage req:** `{tc.coverage_requirement}`")
+
+            st.markdown("**Objective:**")
+            st.info(tc.objective)
+
+            with st.expander("Preconditions", expanded=False):
+                for pre in tc.preconditions:
+                    st.markdown(f"- {pre}")
+
+            with st.expander("Test Steps", expanded=True):
+                for step in tc.steps:
+                    st.markdown(f"**Step {step.step_number} — Action:** {step.action}")
+                    st.markdown(f"**Expected:** {step.expected_result}")
+                    st.divider()
+
+            st.markdown("**Pass criteria:**")
+            st.success(tc.pass_criteria)
+            st.markdown("**Fail criteria:**")
+            st.error(tc.fail_criteria)
+
+            if tc.coverage_tags:
+                st.markdown("**Coverage tags:** " + " ".join(f"`{t}`" for t in tc.coverage_tags))
+
+    # Export SWE.6
+    st.divider()
+    st.subheader("Export — SWE.6")
+    json6, md6 = swe6_write_outputs(
+        metadata=metadata, test_cases=test_cases, links=tc_links,
+        swrs_items=swrs_items, output_dir="output/swe6",
+    )
+    e1, e2 = st.columns(2)
+    with e1:
+        st.download_button("Download SQTS JSON", data=json6.read_bytes(),
+                           file_name="sqts_output.json", mime="application/json",
+                           use_container_width=True)
+    with e2:
+        st.download_button("Download SWE.6 Report (MD)", data=md6.read_bytes(),
+                           file_name="swe6_report.md", mime="text/markdown",
                            use_container_width=True)
