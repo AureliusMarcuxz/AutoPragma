@@ -9,8 +9,15 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .derive import DERIV_FUNCTIONAL, DERIV_SAFETY_MECH, DERIV_CYBERSEC
 from .models import SwRSItem, TraceabilityLink, ValidationFinding
 from .validate import finding_counts
+
+_DERIV_LABEL = {
+    DERIV_FUNCTIONAL:  "FUNCTIONAL",
+    DERIV_SAFETY_MECH: "SAFETY MECH",
+    DERIV_CYBERSEC:    "CYBERSEC IMPL",
+}
 
 
 def write_outputs(
@@ -46,8 +53,14 @@ def _write_json(
             **metadata,
             "generated_by": "AutoPragma SWE.1 processor",
             "generated_at": datetime.now(timezone.utc).isoformat(),
+            "syrs_count": len({link.source_id for link in links}),
             "swrs_count": len(swrs_items),
             "traceability_links": len(links),
+            "derivation_breakdown": {
+                "functional":       sum(1 for sw in swrs_items if sw.derivation_type == DERIV_FUNCTIONAL),
+                "safety_mechanism": sum(1 for sw in swrs_items if sw.derivation_type == DERIV_SAFETY_MECH),
+                "cybersec_impl":    sum(1 for sw in swrs_items if sw.derivation_type == DERIV_CYBERSEC),
+            },
         },
         "validation": {
             "findings_count": finding_counts(findings),
@@ -82,6 +95,13 @@ def _write_markdown(
 
     lines: list[str] = []
 
+    syrs_count = len({link.source_id for link in links})
+    deriv_counts = {
+        "functional":       sum(1 for sw in swrs_items if sw.derivation_type == DERIV_FUNCTIONAL),
+        "safety_mechanism": sum(1 for sw in swrs_items if sw.derivation_type == DERIV_SAFETY_MECH),
+        "cybersec_impl":    sum(1 for sw in swrs_items if sw.derivation_type == DERIV_CYBERSEC),
+    }
+
     # Header
     lines += [
         f"# AutoPragma — SWE.1 Process Report",
@@ -91,8 +111,11 @@ def _write_markdown(
         f"| Source SyRS | {metadata.get('document_id', '—')} v{metadata.get('version', '—')} |",
         f"| Project | {metadata.get('project_key', '—')} |",
         f"| Generated | {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} |",
-        f"| SyRS items processed | {len(links)} |",
+        f"| SyRS items processed | {syrs_count} |",
         f"| SwRS items generated | {len(swrs_items)} |",
+        f"| — functional | {deriv_counts['functional']} |",
+        f"| — safety mechanism | {deriv_counts['safety_mechanism']} |",
+        f"| — cybersec impl | {deriv_counts['cybersec_impl']} |",
         f"| **SWE.1 Gate** | **{gate_result}** |",
         f"",
     ]
@@ -128,11 +151,12 @@ def _write_markdown(
     lines += [
         "## 2. Traceability Matrix (SyRS → SwRS)",
         "",
-        "| SyRS ID | SwRS ID | Link Type |",
+        "| SyRS ID | SwRS ID | Derivation |",
         "|---|---|---|",
     ]
     for link in links:
-        lines.append(f"| {link.source_id} | {link.target_id} | {link.link_type} |")
+        label = _DERIV_LABEL.get(link.link_type, link.link_type)
+        lines.append(f"| {link.source_id} | {link.target_id} | {label} |")
     lines.append("")
 
     # SwRS items
@@ -147,10 +171,12 @@ def _write_markdown(
     for item in swrs_items:
         asil_badge = f"`{item.asil.value}`"
         cyber_badge = " `CYBERSEC`" if item.cybersecurity_relevant else ""
+        deriv_badge = f"`{_DERIV_LABEL.get(item.derivation_type, item.derivation_type)}`"
         lines += [
             f"### {item.id} — {item.title}",
             f"",
             f"**ASIL:** {asil_badge}{cyber_badge}  ",
+            f"**Derivation:** {deriv_badge}  ",
             f"**Type:** {item.type}  ",
             f"**Verification:** {item.verification_method.value}  ",
             f"**Derived from:** {item.derived_from}  ",
