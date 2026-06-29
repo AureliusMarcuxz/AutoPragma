@@ -23,6 +23,8 @@ from swe3 import design_units
 from swe3.report import write_outputs as swe3_write_outputs
 from swe4 import verify_units
 from swe4.report import write_outputs as swe4_write_outputs
+from swe5 import integrate_components
+from swe5.report import write_outputs as swe5_write_outputs
 from swe6 import generate_sqts
 from swe6.report import write_outputs as swe6_write_outputs
 
@@ -114,7 +116,7 @@ _DERIV_LABEL = {
 
 with st.sidebar:
     st.title("AutoPragma")
-    st.caption("ASPICE SWE.1 · SWE.2 · SWE.3 · SWE.4 · SWE.6 Automation")
+    st.caption("ASPICE SWE.1 · SWE.2 · SWE.3 · SWE.4 · SWE.5 · SWE.6 Automation")
     st.divider()
 
     st.subheader("Pipeline Input")
@@ -151,6 +153,11 @@ with st.sidebar:
     else:
         st.caption("SWE.4 — not yet run")
 
+    if st.session_state.get("swe5_done"):
+        st.success("SWE.5 complete")
+    else:
+        st.caption("SWE.5 — not yet run")
+
     if st.session_state.get("swe6_done"):
         st.success("SWE.6 complete")
     else:
@@ -161,7 +168,7 @@ with st.sidebar:
 
 # ── Session state init ────────────────────────────────────────────────────────
 
-for key in ("swe1_done", "swe2_done", "swe3_done", "swe4_done", "swe6_done"):
+for key in ("swe1_done", "swe2_done", "swe3_done", "swe4_done", "swe5_done", "swe6_done"):
     if key not in st.session_state:
         st.session_state[key] = False
 
@@ -171,28 +178,32 @@ if st.session_state.get("_last_input_mode") != input_mode:
     st.session_state.swe2_done = False
     st.session_state.swe3_done = False
     st.session_state.swe4_done = False
+    st.session_state.swe5_done = False
     st.session_state.swe6_done = False
     st.session_state["_last_input_mode"] = input_mode
 
 # ── Main header ───────────────────────────────────────────────────────────────
 
-st.markdown("## AutoPragma — ASPICE SWE.1 · SWE.2 · SWE.3 · SWE.4 · SWE.6 Pipeline")
+st.markdown("## AutoPragma — ASPICE SWE.1 · SWE.2 · SWE.3 · SWE.4 · SWE.5 · SWE.6 Pipeline")
 st.markdown(
     "Ingests a System Requirements Specification (SyRS), derives and validates a draft "
     "Software Requirements Specification (SWE.1), generates the Software Architectural "
     "Design as PlantUML component diagrams (SWE.2), decomposes components into SW units "
     "with defined interfaces (SWE.3), produces a SW Unit Verification Specification with "
-    "dynamic tests and static analysis items (SWE.4), and generates a SW Qualification "
-    "Test Specification with full SwRS traceability (SWE.6)."
+    "dynamic tests and static analysis items (SWE.4), generates a SW Integration Test "
+    "Specification covering intra-component interface contracts and cross-component "
+    "DEM/FIM/Csm/NvM safety and security chains with a PlantUML sequence diagram (SWE.5), "
+    "and generates a SW Qualification Test Specification with full SwRS traceability (SWE.6)."
 )
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "SWE.1 — Software Requirements",
     "SWE.2 — Architectural Design",
     "SWE.3 — Software Detailed Design",
     "SWE.4 — Unit Verification",
+    "SWE.5 — Software Integration",
     "SWE.6 — Qualification Test Specification",
 ])
 
@@ -233,6 +244,8 @@ with tab1:
         st.session_state.swe1_done  = True
         st.session_state.swe2_done  = False  # invalidate downstream when SWE.1 reruns
         st.session_state.swe3_done  = False
+        st.session_state.swe4_done  = False
+        st.session_state.swe5_done  = False
         st.session_state.swe6_done  = False
 
     if not st.session_state.swe1_done:
@@ -401,8 +414,9 @@ with tab2:
         st.session_state.components = components
         st.session_state.comp_links = comp_links
         st.session_state.swe2_done  = True
-        st.session_state.swe3_done  = False  # invalidate SWE.3/4 when SWE.2 reruns
+        st.session_state.swe3_done  = False  # invalidate SWE.3/4/5 when SWE.2 reruns
         st.session_state.swe4_done  = False
+        st.session_state.swe5_done  = False
 
     if swe1_ready and not st.session_state.swe2_done:
         st.info("Click **Run SWE.2 Analysis** to generate the software architectural design.")
@@ -562,7 +576,8 @@ with tab3:
         st.session_state.sw_units   = sw_units
         st.session_state.unit_links = unit_links
         st.session_state.swe3_done  = True
-        st.session_state.swe4_done  = False  # invalidate SWE.4 when SWE.3 reruns
+        st.session_state.swe4_done  = False  # invalidate SWE.4/5 when SWE.3 reruns
+        st.session_state.swe5_done  = False
 
     if swe2_ready and not st.session_state.swe3_done:
         st.info("Click **Run SWE.3 Analysis** to decompose components into SW units.")
@@ -906,7 +921,289 @@ with tab4:
                            use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — SWE.6
+# TAB 5 — SWE.5
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_ITC_TYPE_COLOR = {
+    "interface_contract":  ("#0a4a7a", "#e8f4fd"),
+    "data_flow":           ("#005a3a", "#e0f5ee"),
+    "timing_interaction":  ("#7f0000", "#ffcccc"),
+    "error_propagation":   ("#7f2000", "#ffe0cc"),
+    "safety_chain":        ("#7f5000", "#fff3cc"),
+    "security_chain":      ("#5a0a7a", "#f3e8fd"),
+}
+_ITC_LEVEL_COLOR = {
+    "intra_component":  ("#0a4a7a", "#e8f4fd"),
+    "cross_component":  ("#7f5000", "#fff3cc"),
+    "full":             ("#1a5a1a", "#e0f5e0"),
+}
+
+def itc_type_badge(test_type: str) -> str:
+    fg, bg = _ITC_TYPE_COLOR.get(test_type, ("#333", "#eee"))
+    label = {
+        "interface_contract": "INTF CONTRACT",
+        "data_flow":          "DATA FLOW",
+        "timing_interaction": "TIMING",
+        "error_propagation":  "ERROR PROP",
+        "safety_chain":       "SAFETY CHAIN",
+        "security_chain":     "SECURITY CHAIN",
+    }.get(test_type, test_type.replace("_", " ").upper())
+    return (
+        f'<span style="background:{bg};color:{fg};padding:2px 8px;'
+        f'border-radius:4px;font-weight:700;font-size:0.85em;">{label}</span>'
+    )
+
+def itc_level_badge(level: str) -> str:
+    fg, bg = _ITC_LEVEL_COLOR.get(level, ("#333", "#eee"))
+    label = {"intra_component": "INTRA", "cross_component": "CROSS", "full": "FULL"}.get(level, level.upper())
+    return (
+        f'<span style="background:{bg};color:{fg};padding:2px 8px;'
+        f'border-radius:4px;font-weight:700;font-size:0.85em;">{label}</span>'
+    )
+
+_ITC_TYPE_CELL = {
+    "INTF CONTRACT":   "background-color:#e8f4fd; color:#0a4a7a",
+    "DATA FLOW":       "background-color:#e0f5ee; color:#005a3a",
+    "TIMING":          "background-color:#ffcccc; color:#7f0000",
+    "ERROR PROP":      "background-color:#ffe0cc; color:#7f2000",
+    "SAFETY CHAIN":    "background-color:#fff3cc; color:#7f5000",
+    "SECURITY CHAIN":  "background-color:#f3e8fd; color:#5a0a7a",
+}
+_ITC_LEVEL_CELL = {
+    "INTRA": "background-color:#e8f4fd; color:#0a4a7a",
+    "CROSS": "background-color:#fff3cc; color:#7f5000",
+    "FULL":  "background-color:#e0f5e0; color:#1a5a1a",
+}
+
+with tab5:
+
+    swe3_ready_5 = st.session_state.swe3_done
+
+    run_swe5 = st.button(
+        "Run SWE.5 Analysis",
+        type="primary",
+        disabled=not swe3_ready_5,
+    )
+
+    if not swe3_ready_5:
+        st.warning(
+            "Run **SWE.3 Analysis** first — SWE.5 integrates the SW units "
+            "and components defined in SWE.3."
+        )
+    elif run_swe5:
+        with st.spinner("Running SWE.5 pipeline…"):
+            itcs, itc_links, int_stages = integrate_components(
+                st.session_state.components,
+                st.session_state.sw_units,
+                st.session_state.metadata.get("project_key", "PROJ"),
+            )
+        st.session_state.itcs       = itcs
+        st.session_state.itc_links  = itc_links
+        st.session_state.int_stages = int_stages
+        st.session_state.swe5_done  = True
+
+    if swe3_ready_5 and not st.session_state.swe5_done:
+        st.info(
+            "Click **Run SWE.5 Analysis** to generate the SW Integration "
+            "Test Specification."
+        )
+        st.stop()
+
+    if not st.session_state.swe5_done:
+        st.stop()
+
+    # ── SWE.5 results ─────────────────────────────────────────────────────────
+
+    itcs        = st.session_state.itcs
+    itc_links   = st.session_state.itc_links
+    int_stages  = st.session_state.int_stages
+    components  = st.session_state.components
+    sw_units    = st.session_state.sw_units
+    metadata    = st.session_state.metadata
+    project_key = metadata.get("project_key", "PROJ")
+
+    n_intra    = sum(1 for i in itcs if i.integration_level == "intra_component")
+    n_cross    = sum(1 for i in itcs if i.integration_level == "cross_component")
+    n_critical = sum(1 for i in itcs if i.priority == "critical")
+    n_high     = sum(1 for i in itcs if i.priority == "high")
+
+    # Summary metrics
+    st.divider()
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Total ITCs",         len(itcs))
+    m2.metric("Intra-component",    n_intra)
+    m3.metric("Cross-component",    n_cross)
+    m4.metric("Critical",           n_critical)
+    m5.metric("High",               n_high)
+
+    # Integration plan
+    st.divider()
+    st.subheader("Integration Plan")
+    st.caption(
+        "Bottom-up integration strategy: unit pairs → component pairs → full software."
+    )
+
+    for stage in int_stages:
+        level_label = {
+            "intra_component": "INTRA-COMPONENT",
+            "cross_component": "CROSS-COMPONENT",
+            "full":            "FULL",
+        }.get(stage.integration_level, stage.integration_level.upper())
+
+        with st.expander(
+            f"Stage {stage.stage_number} — {stage.title}  [{level_label}]",
+            expanded=(stage.stage_number == 1),
+        ):
+            st.markdown(stage.description)
+            st.markdown(f"**Steps ({len(stage.steps)}):**")
+            for step in stage.steps:
+                st.markdown(f"**Step {step.step_number} — {step.title}**")
+                st.markdown(
+                    "Units: " + ", ".join(f"`{u}`" for u in step.units[:4])
+                    + ("…" if len(step.units) > 4 else "")
+                )
+                if step.stubs_needed:
+                    st.markdown(
+                        "Stubs needed: " + ", ".join(f"`{s}`" for s in step.stubs_needed)
+                    )
+                st.success(f"Exit criteria: {step.exit_criteria}")
+
+    # Traceability matrix
+    st.divider()
+    st.subheader("Traceability Matrix — Components → Integration Test Cases")
+
+    _TYPE_SHORT = {
+        "interface_contract": "INTF CONTRACT",
+        "data_flow":          "DATA FLOW",
+        "timing_interaction": "TIMING",
+        "error_propagation":  "ERROR PROP",
+        "safety_chain":       "SAFETY CHAIN",
+        "security_chain":     "SECURITY CHAIN",
+    }
+    _LEVEL_SHORT = {
+        "intra_component": "INTRA",
+        "cross_component": "CROSS",
+        "full":            "FULL",
+    }
+
+    trace_rows_swe5 = []
+    for itc in itcs:
+        trace_rows_swe5.append({
+            "ITC ID":   itc.id,
+            "Type":     _TYPE_SHORT.get(itc.test_type, itc.test_type.upper()),
+            "Level":    _LEVEL_SHORT.get(itc.integration_level, itc.integration_level),
+            "ASIL":     itc.asil.value,
+            "Component": ", ".join(itc.components_covered[:2]),
+            "Priority": itc.priority,
+        })
+
+    df_swe5 = pd.DataFrame(trace_rows_swe5)
+    styled_swe5 = (
+        df_swe5.style
+        .applymap(lambda v: _ASIL_CELL.get(v, ""),       subset=["ASIL"])
+        .applymap(lambda v: _ITC_TYPE_CELL.get(v, ""),   subset=["Type"])
+        .applymap(lambda v: _ITC_LEVEL_CELL.get(v, ""),  subset=["Level"])
+        .applymap(lambda v: _PRIORITY_CELL.get(v, ""),   subset=["Priority"])
+    )
+    st.dataframe(styled_swe5, use_container_width=True, hide_index=True)
+
+    # ITC cards
+    st.divider()
+    st.subheader("Integration Test Cases")
+    st.caption(
+        "AI-assisted draft — all integration test cases require human review and "
+        "approval before being treated as normative work products "
+        "(AutoPragma FR-015 / FR-007)."
+    )
+
+    _ITC_PRIO_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    for itc in sorted(itcs, key=lambda i: _ITC_PRIO_ORDER.get(i.priority, 9)):
+        badge_html = asil_badge(itc.asil)
+        if itc.cybersecurity_relevant:
+            badge_html += " " + cybersec_badge()
+        badge_html += " " + itc_type_badge(itc.test_type)
+        badge_html += " " + itc_level_badge(itc.integration_level)
+        badge_html += " " + priority_badge(itc.priority)
+
+        with st.expander(
+            f"{itc.id} — {itc.title}  [{itc.priority.upper()}]",
+            expanded=False,
+        ):
+            st.markdown(f"**Classification:** {badge_html}", unsafe_allow_html=True)
+            col_l, col_r = st.columns(2)
+            col_l.markdown(
+                "**Units:** " + ", ".join(f"`{u}`" for u in itc.units_under_test[:2])
+            )
+            col_r.markdown(f"**Environment:** `{itc.environment}`")
+
+            st.markdown("**Objective:**")
+            st.info(itc.objective)
+
+            with st.expander("Preconditions", expanded=False):
+                for pre in itc.preconditions:
+                    st.markdown(f"- {pre}")
+
+            with st.expander("Stimuli", expanded=True):
+                for stim in itc.stimuli:
+                    st.markdown(f"- {stim}")
+
+            with st.expander("Expected Behaviour", expanded=True):
+                for exp in itc.expected_behavior:
+                    st.markdown(f"- {exp}")
+
+            st.markdown("**Pass criteria:**")
+            st.success(itc.pass_criteria)
+            st.markdown("**Fail criteria:**")
+            st.error(itc.fail_criteria)
+
+            if itc.coverage_tags:
+                st.markdown(
+                    "**Coverage tags:** "
+                    + " ".join(f"`{t}`" for t in itc.coverage_tags)
+                )
+
+    # PlantUML sequence diagram
+    st.divider()
+    st.subheader("PlantUML Integration Sequence Diagram")
+    st.caption(
+        "Render with: PlantUML CLI · VS Code PlantUML extension · plantuml.com"
+    )
+    from swe5.render import render_integration_sequence
+    puml_swe5 = render_integration_sequence(
+        components, sw_units, int_stages, project_key, metadata
+    )
+    st.code(puml_swe5, language="text")
+
+    # Export SWE.5
+    st.divider()
+    st.subheader("Export — SWE.5")
+    json5, md5, puml5 = swe5_write_outputs(
+        metadata=metadata, components=components, units=sw_units,
+        itcs=itcs, links=itc_links, stages=int_stages,
+        output_dir="output/swe5",
+    )
+    h1, h2, h3 = st.columns(3)
+    with h1:
+        st.download_button(
+            "Download SITS JSON", data=json5.read_bytes(),
+            file_name="sits_output.json", mime="application/json",
+            use_container_width=True,
+        )
+    with h2:
+        st.download_button(
+            "Download SWE.5 Report (MD)", data=md5.read_bytes(),
+            file_name="swe5_report.md", mime="text/markdown",
+            use_container_width=True,
+        )
+    with h3:
+        st.download_button(
+            "Download integration_sequence.puml", data=puml5.read_bytes(),
+            file_name="integration_sequence.puml", mime="text/plain",
+            use_container_width=True,
+        )
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 6 — SWE.6
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _PRIORITY_COLOR = {
@@ -962,7 +1259,7 @@ _TYPE_LABEL_MAP = {
     "demonstration":   "DEMONSTRATION",
 }
 
-with tab5:
+with tab6:
 
     swe1_ready = st.session_state.swe1_done
 
