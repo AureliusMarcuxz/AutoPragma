@@ -19,6 +19,8 @@ from swe1.report import write_outputs as swe1_write_outputs
 from swe1.validate import finding_counts
 from swe2 import allocate_swad
 from swe2.report import write_outputs as swe2_write_outputs
+from swe3 import design_units
+from swe3.report import write_outputs as swe3_write_outputs
 from swe6 import generate_sqts
 from swe6.report import write_outputs as swe6_write_outputs
 
@@ -110,7 +112,7 @@ _DERIV_LABEL = {
 
 with st.sidebar:
     st.title("AutoPragma")
-    st.caption("ASPICE SWE.1 · SWE.2 · SWE.6 Automation")
+    st.caption("ASPICE SWE.1 · SWE.2 · SWE.3 · SWE.6 Automation")
     st.divider()
 
     st.subheader("Pipeline Input")
@@ -137,6 +139,11 @@ with st.sidebar:
     else:
         st.caption("SWE.2 — not yet run")
 
+    if st.session_state.get("swe3_done"):
+        st.success("SWE.3 complete")
+    else:
+        st.caption("SWE.3 — not yet run")
+
     if st.session_state.get("swe6_done"):
         st.success("SWE.6 complete")
     else:
@@ -147,7 +154,7 @@ with st.sidebar:
 
 # ── Session state init ────────────────────────────────────────────────────────
 
-for key in ("swe1_done", "swe2_done", "swe6_done"):
+for key in ("swe1_done", "swe2_done", "swe3_done", "swe6_done"):
     if key not in st.session_state:
         st.session_state[key] = False
 
@@ -155,24 +162,27 @@ for key in ("swe1_done", "swe2_done", "swe6_done"):
 if st.session_state.get("_last_input_mode") != input_mode:
     st.session_state.swe1_done = False
     st.session_state.swe2_done = False
+    st.session_state.swe3_done = False
     st.session_state.swe6_done = False
     st.session_state["_last_input_mode"] = input_mode
 
 # ── Main header ───────────────────────────────────────────────────────────────
 
-st.markdown("## AutoPragma — ASPICE SWE.1 · SWE.2 · SWE.6 Pipeline")
+st.markdown("## AutoPragma — ASPICE SWE.1 · SWE.2 · SWE.3 · SWE.6 Pipeline")
 st.markdown(
     "Ingests a System Requirements Specification (SyRS), derives and validates a draft "
     "Software Requirements Specification (SWE.1), generates the Software Architectural "
-    "Design as PlantUML component diagrams (SWE.2), and produces a SW Qualification "
-    "Test Specification with full SwRS traceability (SWE.6)."
+    "Design as PlantUML component diagrams (SWE.2), decomposes components into SW units "
+    "with defined interfaces (SWE.3), and produces a SW Qualification Test Specification "
+    "with full SwRS traceability (SWE.6)."
 )
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "SWE.1 — Software Requirements",
     "SWE.2 — Architectural Design",
+    "SWE.3 — Software Detailed Design",
     "SWE.6 — Qualification Test Specification",
 ])
 
@@ -212,6 +222,7 @@ with tab1:
         st.session_state.links      = links
         st.session_state.swe1_done  = True
         st.session_state.swe2_done  = False  # invalidate downstream when SWE.1 reruns
+        st.session_state.swe3_done  = False
         st.session_state.swe6_done  = False
 
     if not st.session_state.swe1_done:
@@ -380,6 +391,7 @@ with tab2:
         st.session_state.components = components
         st.session_state.comp_links = comp_links
         st.session_state.swe2_done  = True
+        st.session_state.swe3_done  = False  # invalidate SWE.3 when SWE.2 reruns
 
     if swe1_ready and not st.session_state.swe2_done:
         st.info("Click **Run SWE.2 Analysis** to generate the software architectural design.")
@@ -515,7 +527,162 @@ with tab2:
                            use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 3 — SWE.6
+# TAB 3 — SWE.3
+# ═══════════════════════════════════════════════════════════════════════════════
+
+with tab3:
+
+    swe2_ready = st.session_state.swe2_done
+
+    run_swe3 = st.button(
+        "Run SWE.3 Analysis",
+        type="primary",
+        disabled=not swe2_ready,
+    )
+
+    if not swe2_ready:
+        st.warning("Run **SWE.2 Analysis** first — SWE.3 decomposes the SW components into units.")
+    elif run_swe3:
+        with st.spinner("Running SWE.3 pipeline…"):
+            sw_units, unit_links = design_units(
+                st.session_state.components,
+                st.session_state.metadata.get("project_key", "PROJ"),
+            )
+        st.session_state.sw_units   = sw_units
+        st.session_state.unit_links = unit_links
+        st.session_state.swe3_done  = True
+
+    if swe2_ready and not st.session_state.swe3_done:
+        st.info("Click **Run SWE.3 Analysis** to decompose components into SW units.")
+        st.stop()
+
+    if not st.session_state.swe3_done:
+        st.stop()
+
+    # ── SWE.3 results ─────────────────────────────────────────────────────────
+
+    sw_units    = st.session_state.sw_units
+    unit_links  = st.session_state.unit_links
+    components  = st.session_state.components
+    metadata    = st.session_state.metadata
+    project_key = metadata.get("project_key", "PROJ")
+
+    n_app_units = sum(1 for u in sw_units if u.layer == "application")
+    n_saf_units = sum(1 for u in sw_units if u.layer == "safety")
+    n_sec_units = sum(1 for u in sw_units if u.layer == "security")
+
+    # Summary metrics
+    st.divider()
+    u1, u2, u3, u4 = st.columns(4)
+    u1.metric("Total SW Units",          len(sw_units))
+    u2.metric("Application units",       n_app_units)
+    u3.metric("Safety units",            n_saf_units)
+    u4.metric("Security units",          n_sec_units)
+
+    # Component → Unit decomposition table
+    st.divider()
+    st.subheader("Component → Unit Decomposition")
+
+    units_by_comp: dict[str, list] = {}
+    for u in sw_units:
+        units_by_comp.setdefault(u.component_id, []).append(u)
+
+    decomp_rows = []
+    for comp in components:
+        for u in units_by_comp.get(comp.id, []):
+            decomp_rows.append({
+                "Component": comp.name,
+                "Layer":     comp.layer,
+                "ASIL":      u.asil.value,
+                "Unit ID":   u.id,
+                "Unit Name": u.name,
+            })
+
+    df_decomp = pd.DataFrame(decomp_rows)
+    styled_decomp = (
+        df_decomp.style
+        .applymap(lambda v: _ASIL_CELL.get(v, ""),  subset=["ASIL"])
+        .applymap(lambda v: _LAYER_CELL.get(v, ""), subset=["Layer"])
+    )
+    st.dataframe(styled_decomp, use_container_width=True, hide_index=True)
+
+    # Unit specification cards
+    st.divider()
+    st.subheader("SW Unit Specifications")
+    st.caption(
+        "AI-assisted draft — all design decisions require human review and approval "
+        "before being treated as normative work products (AutoPragma FR-015 / FR-007)."
+    )
+
+    for comp in components:
+        st.markdown(f"#### {comp.name}  {asil_badge(comp.asil)}", unsafe_allow_html=True)
+        for u in units_by_comp.get(comp.id, []):
+            badge_html = asil_badge(u.asil)
+            if u.cybersecurity_relevant:
+                badge_html += " " + cybersec_badge()
+            badge_html += " " + layer_badge(u.layer)
+
+            with st.expander(f"{u.id} — {u.name}", expanded=False):
+                st.markdown(f"**Classification:** {badge_html}", unsafe_allow_html=True)
+                st.markdown("**Responsibility:**")
+                st.info(u.responsibility)
+
+                with st.expander("Provided Interface", expanded=True):
+                    for op in u.interface.provided:
+                        params = ", ".join(op.parameters) if op.parameters else "—"
+                        st.markdown(
+                            f"**`{op.name}({params}) : {op.return_type}`** — {op.description}"
+                        )
+
+                if u.interface.required:
+                    with st.expander("Required Services", expanded=False):
+                        for req in u.interface.required:
+                            st.markdown(f"- {req}")
+
+                if u.internal_data:
+                    with st.expander("Internal Data", expanded=False):
+                        for datum in u.internal_data:
+                            st.markdown(f"- `{datum}`")
+
+                if u.allocated_swrs:
+                    st.markdown(
+                        "**Allocated SwRS:** "
+                        + " ".join(f"`{s}`" for s in u.allocated_swrs)
+                    )
+
+    # PlantUML detailed design diagram
+    st.divider()
+    st.subheader("PlantUML Detailed Design Diagram")
+    st.caption(
+        "Render with: PlantUML CLI · VS Code PlantUML extension · plantuml.com"
+    )
+    from swe3.render import render_detailed_design
+    puml_swdd = render_detailed_design(components, sw_units, unit_links, project_key, metadata)
+    st.code(puml_swdd, language="text")
+
+    # Export SWE.3
+    st.divider()
+    st.subheader("Export — SWE.3")
+    json3, md3, puml3 = swe3_write_outputs(
+        metadata=metadata, components=components, units=sw_units,
+        links=unit_links, output_dir="output/swe3",
+    )
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        st.download_button("Download SwDD JSON", data=json3.read_bytes(),
+                           file_name="swdd_output.json", mime="application/json",
+                           use_container_width=True)
+    with f2:
+        st.download_button("Download SWE.3 Report (MD)", data=md3.read_bytes(),
+                           file_name="swe3_report.md", mime="text/markdown",
+                           use_container_width=True)
+    with f3:
+        st.download_button("Download detailed_design.puml", data=puml3.read_bytes(),
+                           file_name="detailed_design.puml", mime="text/plain",
+                           use_container_width=True)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 4 — SWE.6
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _PRIORITY_COLOR = {
@@ -571,7 +738,7 @@ _TYPE_LABEL_MAP = {
     "demonstration":   "DEMONSTRATION",
 }
 
-with tab3:
+with tab4:
 
     swe1_ready = st.session_state.swe1_done
 
