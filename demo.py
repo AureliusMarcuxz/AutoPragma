@@ -218,24 +218,24 @@ for link in links:
 
 df = pd.DataFrame(rows)
 
-_ASIL_BG = {
-    "ASIL-D": "background-color:#ffcccc",
-    "ASIL-C": "background-color:#ffe0cc",
-    "ASIL-B": "background-color:#fff3cc",
-    "ASIL-A": "background-color:#f0f5cc",
-    "QM":     "background-color:#e0f5e0",
+_ASIL_STYLE = {
+    "ASIL-D": "background-color:#ffcccc; color:#7f0000",
+    "ASIL-C": "background-color:#ffe0cc; color:#7f2000",
+    "ASIL-B": "background-color:#fff3cc; color:#7f5000",
+    "ASIL-A": "background-color:#f0f5cc; color:#4a5a00",
+    "QM":     "background-color:#e0f5e0; color:#1a5a1a",
 }
-_DERIV_BG = {
-    "FUNCTIONAL":    "background-color:#e8f4fd",
-    "SAFETY MECH":   "background-color:#fff3cc",
-    "CYBERSEC IMPL": "background-color:#f3e8fd",
+_DERIV_STYLE = {
+    "FUNCTIONAL":    "background-color:#e8f4fd; color:#0a4a7a",
+    "SAFETY MECH":   "background-color:#fff3cc; color:#7f5000",
+    "CYBERSEC IMPL": "background-color:#f3e8fd; color:#5a0a7a",
 }
 
 def highlight_asil(val):
-    return _ASIL_BG.get(val, "")
+    return _ASIL_STYLE.get(val, "")
 
 def highlight_deriv(val):
-    return _DERIV_BG.get(val, "")
+    return _DERIV_STYLE.get(val, "")
 
 styled = (
     df.style
