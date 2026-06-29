@@ -180,6 +180,7 @@ if st.session_state.get("_last_input_mode") != input_mode:
     st.session_state.swe4_done = False
     st.session_state.swe5_done = False
     st.session_state.swe6_done = False
+    st.session_state["swe3_code_files"] = []
     st.session_state["_last_input_mode"] = input_mode
 
 # ── Main header ───────────────────────────────────────────────────────────────
@@ -573,11 +574,12 @@ with tab3:
                 st.session_state.components,
                 st.session_state.metadata.get("project_key", "PROJ"),
             )
-        st.session_state.sw_units   = sw_units
-        st.session_state.unit_links = unit_links
-        st.session_state.swe3_done  = True
-        st.session_state.swe4_done  = False  # invalidate SWE.4/5 when SWE.3 reruns
-        st.session_state.swe5_done  = False
+        st.session_state.sw_units          = sw_units
+        st.session_state.unit_links        = unit_links
+        st.session_state.swe3_done         = True
+        st.session_state.swe4_done         = False  # invalidate downstream when SWE.3 reruns
+        st.session_state.swe5_done         = False
+        st.session_state["swe3_code_files"] = []    # stale if units changed
 
     if swe2_ready and not st.session_state.swe3_done:
         st.info("Click **Run SWE.3 Analysis** to decompose components into SW units.")
@@ -707,6 +709,82 @@ with tab3:
         st.download_button("Download detailed_design.puml", data=puml3.read_bytes(),
                            file_name="detailed_design.puml", mime="text/plain",
                            use_container_width=True)
+
+    # ── Base Code Generation ──────────────────────────────────────────────────
+
+    st.divider()
+    st.subheader("Base Code Generation")
+    st.caption(
+        "Generate MISRA C:2012-compliant AUTOSAR skeleton header (.h) and source (.c) "
+        "files from the SW unit interfaces defined above. Files are stubs — all function "
+        "bodies must be reviewed and implemented by a qualified engineer."
+    )
+
+    if "swe3_code_files" not in st.session_state:
+        st.session_state["swe3_code_files"] = []
+
+    gen_col, _ = st.columns([1, 3])
+    with gen_col:
+        run_codegen = st.button(
+            "Generate Base Code", type="secondary", use_container_width=True
+        )
+
+    if run_codegen:
+        from swe3.codegen import generate_unit_code
+        with st.spinner("Generating C stubs…"):
+            st.session_state["swe3_code_files"] = generate_unit_code(sw_units, project_key)
+
+    code_files = st.session_state.get("swe3_code_files", [])
+
+    if code_files:
+        import io
+        import zipfile
+
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for cf in code_files:
+                folder = cf["component_name"].replace(" ", "_")
+                zf.writestr(f"{folder}/{cf['header_filename']}", cf["header_content"])
+                zf.writestr(f"{folder}/{cf['source_filename']}", cf["source_content"])
+        zip_buf.seek(0)
+
+        total_kb = sum(
+            len(cf["header_content"]) + len(cf["source_content"]) for cf in code_files
+        ) // 1024
+
+        dl_col, _ = st.columns([1, 3])
+        with dl_col:
+            st.download_button(
+                "Download All as ZIP",
+                data=zip_buf.getvalue(),
+                file_name=f"{project_key}_base_code.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
+        st.caption(f"{len(code_files)} unit(s) · {total_kb} KB total")
+
+        # Group by component for display
+        files_by_comp: dict[str, list] = {}
+        for cf in code_files:
+            files_by_comp.setdefault(cf["component_name"], []).append(cf)
+
+        for comp_name, comp_files in files_by_comp.items():
+            st.markdown(f"##### {comp_name}")
+            for cf in comp_files:
+                with st.expander(
+                    f"{cf['unit_name']}  ·  {cf['asil']}  ·  {cf['layer'].upper()}",
+                    expanded=False,
+                ):
+                    h_tab, c_tab = st.tabs([cf["header_filename"], cf["source_filename"]])
+                    with h_tab:
+                        st.code(cf["header_content"], language="c")
+                    with c_tab:
+                        st.code(cf["source_content"], language="c")
+    elif not run_codegen:
+        st.info(
+            "Click **Generate Base Code** to produce MISRA C:2012 skeleton "
+            ".h and .c files for all SW units."
+        )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — SWE.4
