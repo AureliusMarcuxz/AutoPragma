@@ -4,6 +4,7 @@ Run: py -m streamlit run demo.py
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -111,6 +112,21 @@ _DERIV_LABEL = {
     DERIV_SAFETY_MECH: "SAFETY MECH",
     DERIV_CYBERSEC:    "CYBERSEC IMPL",
 }
+
+# ── Download filename helper ──────────────────────────────────────────────────
+
+def _dl_slug(project_key: str, uploaded_file) -> str:
+    """Unique download-filename prefix tied to the active SyRS input.
+
+    Sample mode  → 'VSC'
+    Uploaded file 'my_cluster_v2.json' with project_key 'IC' → 'my_cluster_v2_IC'
+    """
+    pk   = re.sub(r'[^A-Za-z0-9]+', '_', project_key).strip('_')
+    if uploaded_file is not None:
+        stem = Path(uploaded_file.name).stem
+        safe = re.sub(r'[^a-z0-9]+', '_', stem.lower()).strip('_')[:25]
+        return f"{safe}_{pk}"
+    return pk
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
@@ -380,14 +396,15 @@ with tab1:
         metadata=metadata, swrs_items=swrs_items, links=links,
         findings=findings, output_dir="output/swe1",
     )
+    _slug1 = _dl_slug(metadata.get("project_key", "PROJ"), uploaded)
     dl1, dl2 = st.columns(2)
     with dl1:
         st.download_button("Download SwRS JSON", data=json1.read_bytes(),
-                           file_name="swrs_output.json", mime="application/json",
+                           file_name=f"{_slug1}_swrs_output.json", mime="application/json",
                            use_container_width=True)
     with dl2:
         st.download_button("Download SWE.1 Report (MD)", data=md1.read_bytes(),
-                           file_name="swe1_report.md", mime="text/markdown",
+                           file_name=f"{_slug1}_swe1_report.md", mime="text/markdown",
                            use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -532,24 +549,25 @@ with tab2:
         metadata=metadata, components=components, links=comp_links,
         swrs_items=swrs_items, output_dir="output/swe2",
     )
+    _slug2 = _dl_slug(metadata.get("project_key", "PROJ"), uploaded)
     dl1, dl2, dl3, dl4 = st.columns(4)
     with dl1:
         st.download_button("Download SwAD JSON", data=json2.read_bytes(),
-                           file_name="swad_output.json", mime="application/json",
+                           file_name=f"{_slug2}_swad_output.json", mime="application/json",
                            use_container_width=True)
     with dl2:
         st.download_button("Download SWE.2 Report (MD)", data=md2.read_bytes(),
-                           file_name="swe2_report.md", mime="text/markdown",
+                           file_name=f"{_slug2}_swe2_report.md", mime="text/markdown",
                            use_container_width=True)
     with dl3:
         st.download_button("Download component_diagram.puml",
                            data=puml_comp.read_bytes(),
-                           file_name="component_diagram.puml", mime="text/plain",
+                           file_name=f"{_slug2}_component_diagram.puml", mime="text/plain",
                            use_container_width=True)
     with dl4:
         st.download_button("Download safety_diagram.puml",
                            data=puml_safety.read_bytes(),
-                           file_name="safety_diagram.puml", mime="text/plain",
+                           file_name=f"{_slug2}_safety_diagram.puml", mime="text/plain",
                            use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -696,18 +714,19 @@ with tab3:
         metadata=metadata, components=components, units=sw_units,
         links=unit_links, output_dir="output/swe3",
     )
+    _slug3 = _dl_slug(project_key, uploaded)
     f1, f2, f3 = st.columns(3)
     with f1:
         st.download_button("Download SwDD JSON", data=json3.read_bytes(),
-                           file_name="swdd_output.json", mime="application/json",
+                           file_name=f"{_slug3}_swdd_output.json", mime="application/json",
                            use_container_width=True)
     with f2:
         st.download_button("Download SWE.3 Report (MD)", data=md3.read_bytes(),
-                           file_name="swe3_report.md", mime="text/markdown",
+                           file_name=f"{_slug3}_swe3_report.md", mime="text/markdown",
                            use_container_width=True)
     with f3:
         st.download_button("Download detailed_design.puml", data=puml3.read_bytes(),
-                           file_name="detailed_design.puml", mime="text/plain",
+                           file_name=f"{_slug3}_detailed_design.puml", mime="text/plain",
                            use_container_width=True)
 
     # ── Base Code Generation ──────────────────────────────────────────────────
@@ -757,7 +776,7 @@ with tab3:
             st.download_button(
                 "Download All as ZIP",
                 data=zip_buf.getvalue(),
-                file_name=f"{project_key}_base_code.zip",
+                file_name=f"{_slug3}_base_code.zip",
                 mime="application/zip",
                 use_container_width=True,
             )
@@ -1041,14 +1060,15 @@ with tab4:
         metadata=metadata, units=sw_units, test_cases=unit_tcs,
         static_checks=static_chks, links=uv_links, output_dir="output/swe4",
     )
+    _slug4 = _dl_slug(project_key, uploaded)
     g1, g2 = st.columns(2)
     with g1:
         st.download_button("Download SUVS JSON", data=json4.read_bytes(),
-                           file_name="suvs_output.json", mime="application/json",
+                           file_name=f"{_slug4}_suvs_output.json", mime="application/json",
                            use_container_width=True)
     with g2:
         st.download_button("Download SWE.4 Report (MD)", data=md4.read_bytes(),
-                           file_name="swe4_report.md", mime="text/markdown",
+                           file_name=f"{_slug4}_swe4_report.md", mime="text/markdown",
                            use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1313,23 +1333,24 @@ with tab5:
         itcs=itcs, links=itc_links, stages=int_stages,
         output_dir="output/swe5",
     )
+    _slug5 = _dl_slug(project_key, uploaded)
     h1, h2, h3 = st.columns(3)
     with h1:
         st.download_button(
             "Download SITS JSON", data=json5.read_bytes(),
-            file_name="sits_output.json", mime="application/json",
+            file_name=f"{_slug5}_sits_output.json", mime="application/json",
             use_container_width=True,
         )
     with h2:
         st.download_button(
             "Download SWE.5 Report (MD)", data=md5.read_bytes(),
-            file_name="swe5_report.md", mime="text/markdown",
+            file_name=f"{_slug5}_swe5_report.md", mime="text/markdown",
             use_container_width=True,
         )
     with h3:
         st.download_button(
             "Download integration_sequence.puml", data=puml5.read_bytes(),
-            file_name="integration_sequence.puml", mime="text/plain",
+            file_name=f"{_slug5}_integration_sequence.puml", mime="text/plain",
             use_container_width=True,
         )
 
@@ -1475,12 +1496,13 @@ with tab6:
         metadata=metadata, test_cases=test_cases, links=tc_links,
         swrs_items=swrs_items, output_dir="output/swe6",
     )
+    _slug6 = _dl_slug(project_key, uploaded)
     e1, e2 = st.columns(2)
     with e1:
         st.download_button("Download SQTS JSON", data=json6.read_bytes(),
-                           file_name="sqts_output.json", mime="application/json",
+                           file_name=f"{_slug6}_sqts_output.json", mime="application/json",
                            use_container_width=True)
     with e2:
         st.download_button("Download SWE.6 Report (MD)", data=md6.read_bytes(),
-                           file_name="swe6_report.md", mime="text/markdown",
+                           file_name=f"{_slug6}_swe6_report.md", mime="text/markdown",
                            use_container_width=True)
